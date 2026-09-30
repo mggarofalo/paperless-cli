@@ -25,6 +25,14 @@ The Windows installer builds from this checkout, installs to `~/.local/bin`, and
 
 CI tests Linux, macOS, and Windows. Pushing a `v*` tag runs the release workflow to publish binaries and checksums for all three platforms on amd64 and arm64. The release job runs on macOS so its binaries retain native Keychain support (CGO); Linux and Windows builds do not require CGO.
 
+## Releases
+
+Download platform archives from [GitHub Releases](https://github.com/mggarofalo/paperless-cli/releases). Each release includes SHA-256 checksums and a `paperless` binary (`paperless.exe` on Windows); place it in a directory on your PATH.
+
+CI runs on PRs and pushes to main, including a full six-platform GoReleaser snapshot build without publishing. Publication is triggered only by pushing a stable `vMAJOR.MINOR.PATCH` tag whose commit belongs to main. Release tags are created after merging a passing PR and verifying main CI. The workflow validates the tag, builds with GoReleaser v2.18.2, and publishes archives and checksums.
+
+The repository's [release skill](.agents/skills/release/SKILL.md) covers version selection, tagging, publication, and downloaded-artifact verification. Invoke it with an explicit version such as `$release 0.1.0`, or a semantic bump. Releases are complete only after the workflow and artifact verification succeed.
+
 ## Authentication
 
 Create an API token in Paperless's **My Profile** screen, then run:
