@@ -12,14 +12,16 @@ cd paperless-cli
 go build -o paperless .
 ```
 
-On Windows:
+On Windows, build and install into your user PATH:
 
 ```powershell
-go build -o bin/paperless.exe .
-.\bin\paperless.exe --help
+.\install.ps1
+paperless --help
 ```
 
-`make install` installs the `paperless` binary to your Go bin directory. Alternatively, `go install github.com/mggarofalo/paperless-cli@latest` installs a binary named `paperless-cli` (the module directory name); its commands are identical.
+The Windows installer builds from this checkout, installs to `~/.local/bin`, and adds that directory to your user PATH if needed. It also updates the calling PowerShell session's PATH. Restart other existing terminals/apps if the directory was newly added. Re-run the installer to upgrade; existing PATH entries are preserved and no duplicate entry is added. Use `-InstallDir PATH` to choose a different directory. Administrator privileges are not required for the default location.
+
+`make install` runs the same installer on Windows. On Linux/macOS it installs the `paperless` binary to your Go bin directory; ensure that directory is on PATH by adding `export PATH="$(go env GOPATH)/bin:$PATH"` to your shell startup file and opening a new terminal. Alternatively, `go install github.com/mggarofalo/paperless-cli@latest` installs a binary named `paperless-cli` (the module directory name); its commands are identical.
 
 CI tests Linux, macOS, and Windows. Pushing a `v*` tag runs the release workflow to publish binaries and checksums for all three platforms on amd64 and arm64. The release job runs on macOS so its binaries retain native Keychain support (CGO); Linux and Windows builds do not require CGO.
 
