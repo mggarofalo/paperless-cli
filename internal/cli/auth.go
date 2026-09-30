@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -61,7 +62,101 @@ func saveConfig(c config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, b, 0600)
+	f, err := os.CreateTemp(filepath.Dir(p), ".config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err = f.Write(b); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), p)
+}
+
+type credentialStore interface {
+	Get(string) (keyring.Item, error)
+	Set(keyring.Item) error
+	Remove(string) error
+}
+
+// Save the new credentials before retiring the previous URL's entry. If config
+// persistence fails, restore the destination entry rather than losing a working token.
+func saveLoginCredentials(cfg config, profile, base, token string, store credentialStore, persist func(config) error) error {
+	key := credentialKey(profile, base)
+	previous, err := store.Get(key)
+	if err != nil && !errors.Is(err, keyring.ErrKeyNotFound) {
+		return err
+	}
+	existed := err == nil
+	if err = store.Set(keyring.Item{Key: key, Data: []byte(token)}); err != nil {
+		return err
+	}
+	updated := config{Profiles: make(map[string]string, len(cfg.Profiles)+1)}
+	for k, v := range cfg.Profiles {
+		updated.Profiles[k] = v
+	}
+	updated.Profiles[profile] = base
+	if err = persist(updated); err != nil {
+		var rollback error
+		if existed {
+			rollback = store.Set(previous)
+		} else {
+			rollback = store.Remove(key)
+		}
+		if rollback != nil {
+			return errors.Join(err, fmt.Errorf("restore keyring after config save failure: %w", rollback))
+		}
+		return err
+	}
+	if oldBase := cfg.Profiles[profile]; oldBase != "" {
+		oldKey := credentialKey(profile, oldBase)
+		if oldKey != key {
+			if err := store.Remove(oldKey); err != nil && !errors.Is(err, keyring.ErrKeyNotFound) {
+				return fmt.Errorf("new login saved, but removing the previous instance's stored token failed: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+func logoutCredentials(cfg config, profile string, store credentialStore, persist func(config) error) error {
+	var previous keyring.Item
+	existed := false
+	if base := cfg.Profiles[profile]; base != "" {
+		var err error
+		previous, err = store.Get(credentialKey(profile, base))
+		if err != nil && !errors.Is(err, keyring.ErrKeyNotFound) {
+			return err
+		}
+		existed = err == nil
+		if existed {
+			if err = store.Remove(previous.Key); err != nil && !errors.Is(err, keyring.ErrKeyNotFound) {
+				return err
+			}
+		}
+	}
+	updated := config{Profiles: make(map[string]string, len(cfg.Profiles))}
+	for k, v := range cfg.Profiles {
+		if k != profile {
+			updated.Profiles[k] = v
+		}
+	}
+	if err := persist(updated); err != nil {
+		if existed {
+			if rollback := store.Set(previous); rollback != nil {
+				return errors.Join(err, fmt.Errorf("restore token after logout config failure: %w", rollback))
+			}
+		}
+		return err
+	}
+	return nil
 }
 func openRing() (keyring.Keyring, error) {
 	return keyring.Open(keyring.Config{ServiceName: "paperless-cli", AllowedBackends: []keyring.BackendType{keyring.WinCredBackend, keyring.KeychainBackend, keyring.SecretServiceBackend, keyring.KWalletBackend}})
@@ -83,15 +178,26 @@ func (o *options) credentials() (string, string, error) {
 	if base == "" {
 		base = cfg.Profiles[o.profile]
 	}
-	token := os.Getenv("PAPERLESS_API_TOKEN")
-	if token == "" {
-		if ring, e := openRing(); e == nil {
-			if item, e := ring.Get(credentialKey(o.profile, base)); e == nil {
-				token = string(item.Data)
-			}
-		}
+	token, err := credentialToken(o.profile, base, os.Getenv("PAPERLESS_API_TOKEN"), func() (credentialStore, error) { return openRing() })
+	return base, token, err
+}
+
+func credentialToken(profile, base, envToken string, open func() (credentialStore, error)) (string, error) {
+	if envToken != "" || base == "" {
+		return envToken, nil
 	}
-	return base, token, nil
+	store, err := open()
+	if err != nil {
+		return "", fmt.Errorf("open OS keyring: %w", err)
+	}
+	item, err := store.Get(credentialKey(profile, base))
+	if errors.Is(err, keyring.ErrKeyNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read API token from OS keyring: %w", err)
+	}
+	return string(item.Data), nil
 }
 func authCommand(o *options) *cobra.Command {
 	r := &cobra.Command{Use: "auth", Short: "Manage OS-keyring credentials"}
@@ -131,11 +237,7 @@ func authCommand(o *options) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("OS keyring unavailable; use PAPERLESS_API_TOKEN: %w", err)
 		}
-		if err = ring.Set(keyring.Item{Key: credentialKey(o.profile, base), Data: []byte(token)}); err != nil {
-			return err
-		}
-		cfg.Profiles[o.profile] = base
-		if err = saveConfig(cfg); err != nil {
+		if err = saveLoginCredentials(cfg, o.profile, base, token, ring, saveConfig); err != nil {
 			return err
 		}
 		fmt.Fprintln(cmd.ErrOrStderr(), "Instance URL saved to your profile; API token saved to the OS keyring.")
@@ -169,17 +271,15 @@ func authCommand(o *options) *cobra.Command {
 			return err
 		}
 		base := cfg.Profiles[o.profile]
+		var store credentialStore
 		if base != "" {
 			ring, err := openRing()
 			if err != nil {
 				return err
 			}
-			if err = ring.Remove(credentialKey(o.profile, base)); err != nil && err != keyring.ErrKeyNotFound {
-				return err
-			}
+			store = ring
 		}
-		delete(cfg.Profiles, o.profile)
-		if err = saveConfig(cfg); err != nil {
+		if err = logoutCredentials(cfg, o.profile, store, saveConfig); err != nil {
 			return err
 		}
 		fmt.Fprintln(cmd.ErrOrStderr(), "Saved credentials removed. Environment variables are unchanged.")
