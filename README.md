@@ -27,7 +27,22 @@ CI tests Linux, macOS, and Windows. Pushing a `v*` tag runs the release workflow
 
 ## Authentication
 
-Create an API token in Paperless's **My Profile** screen. For agent or CI use, set these environment variables in the calling process:
+Create an API token in Paperless's **My Profile** screen, then run:
+
+```sh
+paperless auth login
+```
+
+The CLI prompts for your instance URL and API token (hidden while typing). A hostname without a scheme defaults to HTTPS. It verifies API access, saves the URL in your local profile, and stores the token in the OS keyring. Future commands use these saved credentials; no environment variables are required.
+
+```sh
+paperless auth status --check
+paperless document list
+```
+
+Run login again to replace the token. The saved URL appears as a default; press Enter to keep it or type a different URL. You can also supply the URL explicitly with `paperless auth login --url https://paperless.example.com`. Use `paperless auth logout` to remove the saved credentials.
+
+For agent or CI use, environment variables are an optional alternative:
 
 ```sh
 export PAPERLESS_URL=https://paperless.example.com
@@ -43,15 +58,7 @@ $env:PAPERLESS_API_TOKEN = 'your-token'
 paperless auth status --check
 ```
 
-For interactive use, store the token in the OS keyring:
-
-```sh
-paperless auth login --url https://paperless.example.com
-paperless auth status
-paperless auth logout
-```
-
-Login uses `PAPERLESS_API_TOKEN` if present; otherwise it prompts without echo. `--token-stdin` reads a token from stdin. Login checks API access before saving. There is no plaintext token fallback. Headless environments without a keyring should use the environment variable.
+Login uses `PAPERLESS_API_TOKEN` if present; otherwise it prompts without echo, even when a token was previously saved. For noninteractive login, `--url URL --token-stdin` reads a token from stdin. There is no plaintext token fallback. Headless environments without a keyring should use the environment variable.
 
 `--profile staging` (or `PAPERLESS_PROFILE=staging`) selects separate saved credentials. URL precedence is `--url` > `PAPERLESS_URL` > the saved profile. Token precedence is `PAPERLESS_API_TOKEN` > the OS keyring. Saved credentials are bound to both profile and URL. Config contains only profile URLs, under the OS user config directory at `paperless-cli/config.json`; `XDG_CONFIG_HOME` overrides that directory. Logout removes saved credentials, not environment variables.
 
