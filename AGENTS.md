@@ -7,3 +7,4 @@
 - Tests use local HTTP servers, never a real Paperless instance by default.
 - API transport belongs in `internal/api`; command behavior and configuration belong in `internal/cli`.
 - On Windows, use `exec_command` with `tty: true`, including read-only commands. Poll running commands with `write_stdin`. Start background helpers with `Start-Process -WindowStyle Hidden`.
+- Changes to protected `main` go through a PR and passing CI. For releases, follow `.agents/skills/release/SKILL.md`; a tag push triggers publication.
