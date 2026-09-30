@@ -78,7 +78,7 @@ paperless correspondent list --all
 
 Search forwards Paperless's full-text query syntax. `--filter key=value` can be repeated for API filters, including custom-field queries. `content` returns a JSON object with the document ID, title, and OCR text. `metadata` returns the file metadata endpoint response.
 
-Default list output is the server's response, including pagination links. `--all` follows every page and returns `{"count": N, "results": [...]}`. `--page` selects the starting page. Pagination is confined to the configured API, and cycles fail explicitly.
+Default list output is the server's response, including pagination links. `--all` follows every page and returns `{"count": N, "results": [...]}`. `--page` selects the starting page. Pagination is confined to the configured API, and cycles fail explicitly. If a reverse proxy produces HTTP pagination links for the same HTTPS instance, the CLI upgrades those links to the configured HTTPS origin; credentials are never sent over the downgraded link.
 
 ## Organize documents
 

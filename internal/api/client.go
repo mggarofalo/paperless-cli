@@ -66,6 +66,24 @@ func (c *Client) URL(path string) (*url.URL, error) {
 	return u, nil
 }
 
+// Reverse proxies may leave HTTP in server-generated pagination links. Upgrade
+// only links for the same instance; never send credentials over a downgraded URL.
+func (c *Client) paginationURL(path string) (*url.URL, error) {
+	r, err := url.Parse(path)
+	if err != nil {
+		return nil, err
+	}
+	if c.Base.Scheme == "https" && r.Scheme == "http" && strings.EqualFold(r.Hostname(), c.Base.Hostname()) {
+		samePort := r.Port() == c.Base.Port()
+		standardPorts := (r.Port() == "" || r.Port() == "80") && (c.Base.Port() == "" || c.Base.Port() == "443")
+		if samePort || standardPorts {
+			r.Scheme = c.Base.Scheme
+			r.Host = c.Base.Host
+		}
+	}
+	return c.URL(r.String())
+}
+
 func (c *Client) Request(ctx context.Context, method, path string, body io.Reader, contentType string) (*http.Response, error) {
 	u, err := c.URL(path)
 	if err != nil {
@@ -169,6 +187,13 @@ func (c *Client) List(ctx context.Context, path string, all bool) (any, error) {
 				return nil, err
 			}
 			path = u.ResolveReference(ref).String()
+		}
+		if path != "" {
+			nextURL, err := c.paginationURL(path)
+			if err != nil {
+				return nil, err
+			}
+			path = nextURL.String()
 		}
 	}
 	return map[string]any{"count": len(results), "results": results}, nil

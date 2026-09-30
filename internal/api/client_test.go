@@ -98,3 +98,47 @@ func TestCancellation(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestProxyPaginationUpgrade(t *testing.T) {
+	c, _ := New("https://example.test", "secret", time.Second)
+	for _, path := range []string{"http://example.test/api/documents/?page=2", "http://example.test:80/api/documents/?page=2"} {
+		u, err := c.paginationURL(path)
+		if err != nil || u.String() != "https://example.test/api/documents/?page=2" {
+			t.Fatalf("%v %v", u, err)
+		}
+		if _, err := c.URL(path); err == nil {
+			t.Fatal("raw requests must still reject downgrades")
+		}
+	}
+	for _, path := range []string{"http://evil.test/api/documents/", "http://example.test:8080/api/documents/", "http://user@example.test/api/documents/", "http://example.test/outside/", "http://example.test/api/documents/#fragment"} {
+		if _, err := c.paginationURL(path); err == nil {
+			t.Fatalf("accepted unsafe pagination URL: %s", path)
+		}
+	}
+}
+
+func TestPaginationStaysOnTLS(t *testing.T) {
+	var s *httptest.Server
+	calls := 0
+	s = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.TLS == nil || r.Header.Get("Authorization") != "Token secret" {
+			t.Error("expected authenticated TLS request")
+		}
+		if r.URL.Query().Get("page") == "2" {
+			fmt.Fprint(w, `{"results":[{"id":2}],"next":null}`)
+		} else {
+			fmt.Fprintf(w, `{"results":[{"id":1}],"next":%q}`, strings.Replace(s.URL, "https://", "http://", 1)+"/api/documents/?page=2")
+		}
+	}))
+	defer s.Close()
+	c, _ := New(s.URL, "secret", time.Second)
+	c.HTTP.Transport = s.Client().Transport
+	v, err := c.List(context.Background(), "documents/", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || v.(map[string]any)["count"] != 2 {
+		t.Fatalf("%v (%d calls)", v, calls)
+	}
+}
