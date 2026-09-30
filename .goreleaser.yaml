@@ -1,9 +1,17 @@
 version: 2
 project_name: paperless
 builds:
-  - binary: paperless
+  - id: portable
+    binary: paperless
     env: [CGO_ENABLED=0]
-    goos: [linux, darwin, windows]
+    goos: [linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+  - id: macos
+    binary: paperless
+    env: [CGO_ENABLED=1]
+    goos: [darwin]
     goarch: [amd64, arm64]
     ldflags:
       - -s -w -X main.version={{.Version}}

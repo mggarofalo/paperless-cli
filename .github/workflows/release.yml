@@ -6,7 +6,8 @@ permissions:
   contents: write
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # macOS Keychain support requires CGO and the macOS SDK.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:

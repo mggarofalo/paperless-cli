@@ -21,7 +21,7 @@ go build -o bin/paperless.exe .
 
 `make install` installs the `paperless` binary to your Go bin directory. Alternatively, `go install github.com/mggarofalo/paperless-cli@latest` installs a binary named `paperless-cli` (the module directory name); its commands are identical.
 
-CI tests Linux, macOS, and Windows. Pushing a `v*` tag runs the release workflow to publish binaries and checksums for all three platforms on amd64 and arm64.
+CI tests Linux, macOS, and Windows. Pushing a `v*` tag runs the release workflow to publish binaries and checksums for all three platforms on amd64 and arm64. The release job runs on macOS so its binaries retain native Keychain support (CGO); Linux and Windows builds do not require CGO.
 
 ## Authentication
 
